@@ -17,6 +17,7 @@ jobs:
             ~/aarch64-linux-android-4.9
             ~/arm-linux-androideabi-4.9
             ~/clang
+          key: kernel-source
             
       - uses: actions/checkout@v3
       - name: Setup environment
