@@ -14,6 +14,9 @@ jobs:
         with:
           path: |
             ~/kernel-source
+            ~/aarch64-linux-android-4.9
+            ~/arm-linux-androideabi-4.9
+            ~/clang
             
       - uses: actions/checkout@v3
       - name: Setup environment
