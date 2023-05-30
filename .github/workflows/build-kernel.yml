@@ -4,77 +4,47 @@ name: Build MikaKernel
 on:
   workflow_dispatch:
 
-
 jobs:
-  build-kernel:
-    runs-on: ubuntu-latest
+
+  build:
+    runs-on: ubuntu-18.04
+
     steps:
-      - name: Cache Gradle packages
-        uses: actions/cache@v3
+
+      - uses: actions/checkout@v2
+      - name: Load Configuration
+        uses: falti/dotenv-action@v0.2.5
+        id: config
         with:
-          path: |
-            ~/kernel-source
-            ~/aarch64-linux-android-4.9
-            ~/arm-linux-androideabi-4.9
-            ~/clang
-          key: kernel-source
-            
-      - uses: actions/checkout@v3
-      - name: Setup environment
-        run: |
-          uname -a
-          echo "ANYKERNEL_SOURCE=$(cat config.env | grep -w "ANYKERNEL_SOURCE" | head -n 1 | cut -d "=" -f 2)" >> $GITHUB_ENV
-          echo "ANYKERNEL_SOURCE_BRANCH=$(cat config.env | grep -w "ANYKERNEL_SOURCE_BRANCH" | head -n 1 | cut -d "=" -f 2)" >> $GITHUB_ENV
-          echo "KERNEL_SOURCE=$(cat config.env | grep -w "KERNEL_SOURCE" | head -n 1 | cut -d "=" -f 2)" >> $GITHUB_ENV
-          echo "KERNEL_SOURCE_BRANCH=$(cat config.env | grep -w "KERNEL_SOURCE_BRANCH" | head -n 1 | cut -d "=" -f 2)" >> $GITHUB_ENV
-          echo "KERNEL_TARGET=$(cat config.env | grep -w "KERNEL_TARGET" | head -n 1 | cut -d "=" -f 2)" >> $GITHUB_ENV
-          echo "BUILD_ARGS=$(cat config.env | grep -w "BUILD_ARGS" | head -n 1 | cut -d ":" -f 2)" >> $GITHUB_ENV
+          path: config.env
 
-      - name: Pull toolchain
+      - name: Check Configuration
         run: |
-          # apt-get install clang gcc gcc-multilib -y
-          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 aarch64-linux-android-4.9
-          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9 arm-linux-androideabi-4.9
-          mkdir clang && curl https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android11-release/clang-r377782c.tar.gz -RLO && tar -C clang/ -xf clang-*.tar.gz
-
-      - name: Pull kernel source
+          function required () { if ! [[ "$1" ]]; then echo "$2 variable can't be null." && exit 1; fi }
+          required "${{ steps.config.outputs.kernel_name }}" "KERNEL_NAME config"
+          required "${{ steps.config.outputs.branch_name }}" "BRANCH_NAME config"
+          required "${{ steps.config.outputs.kernel_url }}" "KERNEL_URL config"
+ 
+      - name: Git kernel
         run: |
-          git clone --depth=1 ${{ env.KERNEL_SOURCE }} -b ${{ env.KERNEL_SOURCE_BRANCH }} kernel-source
-          echo "KERNEL_VERSION="$(cat kernel-source/arch/arm64/configs/${{ env.KERNEL_TARGET }}_defconfig | grep "CONFIG_LOCALVERSION\=" | sed -r 's/.*"(.+)".*/\1/' | sed 's/^.//')"" >> $GITHUB_ENV
+          git clone "${{ steps.config.outputs.kernel_url }}" -b "${{ steps.config.outputs.branch_name }}" kernel
 
-      - name: Build kernel
+      - name: Setup Environment
         run: |
-          export KBUILD_BUILD_USER="zclkkk"
-          export KBUILD_BUILD_HOST="workspace"
-          export PATH=$GITHUB_WORKSPACE/clang/bin:${PATH}
-          args="                  ARCH=arm64 \
-                                  O=../out \
-                                  ${{ env.BUILD_ARGS }} \
-                                  CLANG_TRIPLE=aarch64-linux-gnu- \
-                                  CROSS_COMPILE=$GITHUB_WORKSPACE/aarch64-linux-android-4.9/bin/aarch64-linux-android- \
-                                  CROSS_COMPILE_ARM32=$GITHUB_WORKSPACE/arm-linux-androideabi-4.9/bin/arm-linux-androideabi- "
-          cd kernel-source
-          make ${args} ${{ env.KERNEL_TARGET }}_defconfig
-          make -j$(($(getconf _NPROCESSORS_ONLN) * 2)) ${args}
+          cd $GITHUB_WORKSPACE/kernel
+          git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 -b lineage-18.1 tool/aarch
+          git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9 -b lineage-18.1 tool/arm
+          sh -c "$(curl -sSL https://github.com/akhilnarang/scripts/raw/master/setup/android_build_env.sh/)"
 
-      - name: Package kernel
+      - name: make kernel
         run: |
-          git clone --depth=1 ${{ env.ANYKERNEL_SOURCE }} -b ${{ env.ANYKERNEL_SOURCE_BRANCH }} AnyKernel3 && rm -rf AnyKernel3/.git AnyKernel3/.github AnyKernel3/LICENSE AnyKernel3/README.md
-          if [[ -f out/arch/arm64/boot/Image.gz-dtb ]]; then
-            cp out/arch/arm64/boot/Image.gz-dtb AnyKernel3/Image.gz-dtb
-          elif [[ -f out/arch/arm64/boot/Image-dtb ]]; then
-            cp out/arch/arm64/boot/Image-dtb AnyKernel3/Image-dtb
-          elif [[ -f out/arch/arm64/boot/Image.gz ]]; then
-            cp out/arch/arm64/boot/Image.gz AnyKernel3/Image.gz
-          elif [[ -f out/arch/arm64/boot/Image ]]; then
-            cp out/arch/arm64/boot/Image AnyKernel3/Image
-          fi
-          if [ -f out/arch/arm64/boot/dtbo.img ]; then
-            cp out/arch/arm64/boot/dtbo.img AnyKernel3/dtbo.img
-          fi
+          sudo mv build.sh $GITHUB_WORKSPACE/kernel
+          cd $GITHUB_WORKSPACE/kernel
+          bash ./build.sh
 
-      - name: Upload kernel to artifact
-        uses: actions/upload-artifact@v3
+      - name: Upload to Release
+        uses: ncipollo/release-action@v1
         with:
-          name: ${{ env.KERNEL_VERSION }}_${{ env.KERNEL_TARGET }}
-          path: AnyKernel3/*
+          artifacts: "kernel/out/arch/arm64/boot/Image.gz-dtb"
+          tag: "${{ steps.config.outputs.kernel_name }}"
+          token: ${{ secrets.GITHUB_TOKEN }}
