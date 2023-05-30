@@ -41,10 +41,9 @@ jobs:
           sudo mv build.sh $GITHUB_WORKSPACE/kernel
           cd $GITHUB_WORKSPACE/kernel
           bash ./build.sh
-
-      - name: Upload to Release
-        uses: ncipollo/release-action@v1
+          
+      - name: Upload kernel to artifact
+        uses: actions/upload-artifact@v3
         with:
-          artifacts: "kernel/out/arch/arm64/boot/Image.gz-dtb"
-          tag: "${{ steps.config.outputs.kernel_name }}"
-          token: ${{ secrets.GITHUB_TOKEN }}
+          name: ${{ steps.config.outputs.kernel_name }}
+          path: kernel/out/arch/arm64/boot/*
