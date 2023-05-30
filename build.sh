@@ -9,4 +9,4 @@ make mrproper && git reset --hard HEAD
 
 echo "=========================make========================="
 make O=out scorpio_defconfig
-make O=out -j4
+make O=out -j$(nproc --all)
